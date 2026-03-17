@@ -1,0 +1,123 @@
+{
+  "name": "hop-network-engineer-toolset",
+  "productName": "Hop! - Network Engineer Toolset",
+  "version": "1.0.0",
+  "description": "Hop! - Professional network diagnostics and monitoring dashboard",
+  "main": "electron.js",
+  "author": "Gabriel Stancu",
+  "license": "Freeware",
+  "scripts": {
+    "server": "node server/index.js",
+    "client": "cd client && npm start",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "install-all": "npm install && cd client && npm install",
+    "electron": "node_modules\\.bin\\electron.cmd electron.js",
+    "electron-dev": "concurrently \"npm run client\" \"wait-on http://localhost:3000 && cross-env ELECTRON_START_URL=dev node_modules\\.bin\\electron.cmd electron.js\"",
+    "build-client": "cd client && npm run build",
+    "build-react": "cd client && npm run build",
+    "prebuild": "npm run build-client",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build-win": "electron-builder --win",
+    "build-mac": "electron-builder --mac",
+    "build-linux": "electron-builder --linux",
+    "build-all": "electron-builder -mwl"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "net-snmp": "^3.11.2",
+    "node-arp": "^1.0.6",
+    "ping": "^0.4.4",
+    "socket.io": "^4.7.2",
+    "sql.js": "^1.9.0",
+    "ssh2": "^1.17.0",
+    "traceroute": "^1.0.0",
+    "wake_on_lan": "^1.0.0",
+    "whois": "^2.14.2"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.gabrielstancu.hop",
+    "productName": "Hop! - Network Engineer Toolset",
+    "copyright": "Gabriel Stancu 2026 - Freeware",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron.js",
+      "server/**/*",
+      "client/build/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets"
+      }
+    ],
+    "asarUnpack": [
+      "node_modules/**/*",
+      "server/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": false,
+      "sign": null
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/icon.png",
+      "category": "Network"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Hop! - Network Engineer Toolset"
+    },
+    "portable": {
+      "artifactName": "Hop-NetworkEngineerToolset-portable.exe"
+    },
+    "dmg": {
+      "title": "Hop! Installer",
+      "icon": "build/icon.icns"
+    }
+  }
+}

@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+@import 'leaflet/dist/leaflet.css';
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #0a0e1a;
+  color: #e2e8f0;
+}
+
+code, .font-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0f1525;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+input, select, textarea {
+  background: #0f1525;
+  border: 1px solid #1e293b;
+  color: #e2e8f0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: #06b6d4;
+}
+
+.tool-card {
+  background: #0f1525;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #06b6d4, #0891b2);
+  color: white;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-primary:hover {
+  background: linear-gradient(135deg, #22d3ee, #06b6d4);
+  transform: translateY(-1px);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-secondary {
+  background: #1e293b;
+  color: #94a3b8;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 14px;
+  border: 1px solid #334155;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-secondary:hover {
+  background: #334155;
+  color: #e2e8f0;
+}
+
+.status-up {
+  color: #22c55e;
+}
+.status-down {
+  color: #ef4444;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+}
+.data-table th {
+  background: #151d32;
+  color: #94a3b8;
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #1e293b;
+}
+.data-table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid #0f1525;
+  color: #cbd5e1;
+}
+.data-table tr:hover td {
+  background: #151d32;
+}

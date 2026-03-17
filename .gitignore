@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+client/node_modules/
+
+# Production builds
+dist/
+release/
+client/build/
+dist-installer/
+
+# Database
+*.db
+data/
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Electron
+out/
