@@ -4,9 +4,16 @@ client/node_modules/
 
 # Production builds
 dist/
+dist*/
 release/
 client/build/
 dist-installer/
+
+# Archives
+*.zip
+*.7z
+*.tar
+*.gz
 
 # Database
 *.db
