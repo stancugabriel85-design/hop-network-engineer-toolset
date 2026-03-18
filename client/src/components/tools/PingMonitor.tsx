@@ -4,6 +4,8 @@ import { getSocket } from '../../socket';
 import { Radio, Play, Square } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+interface PingUpdateEvent { host: string; rtt: number | null; status: 'up' | 'down' | 'error'; timestamp: number; }
+
 const PingMonitor: React.FC = () => {
   const [hostsInput, setHostsInput] = useState('');
   const [interval, setInterval_] = useState('5');
@@ -30,7 +32,7 @@ const PingMonitor: React.FC = () => {
 
   useEffect(() => {
     const socket = getSocket();
-    const handleUpdate = (data: any) => {
+    const handleUpdate = (data: PingUpdateEvent) => {
       addPingUpdate(data);
       if (data.status === 'down') {
         addAlert({ message: `Host ${data.host} is DOWN`, severity: 'critical', host: data.host, timestamp: data.timestamp });

@@ -7,6 +7,8 @@ const whois = require('whois');
 const axios = require('axios');
 const os = require('os');
 const db = require('./db');
+const ipRegex = require('ip-regex');
+const rateLimit = require('express-rate-limit');
 
 function saveHistory(tool, params, results) {
   try {
@@ -17,11 +19,128 @@ function saveHistory(tool, params, results) {
   }
 }
 
+// ─── INPUT VALIDATION ───
+const LOCAL_SCAN_ALLOWED = process.env.LOCAL_SCAN_ALLOWED !== 'false'; // Default to true
+
+function validateIP(ip) {
+  if (!ip || typeof ip !== 'string') {
+    return { valid: false, error: 'IP address is required' };
+  }
+
+  // Check if it's a valid IP format
+  if (!ipRegex({ exact: true }).test(ip)) {
+    return { valid: false, error: 'Invalid IP address format' };
+  }
+
+  // Check for restricted ranges unless local scanning is explicitly allowed
+  if (!LOCAL_SCAN_ALLOWED) {
+    // Loopback addresses
+    if (ip.startsWith('127.') || ip === '::1') {
+      return { valid: false, error: 'Loopback addresses not allowed' };
+    }
+
+    // Link-local addresses
+    if (ip.startsWith('169.254.')) {
+      return { valid: false, error: 'Link-local addresses not allowed' };
+    }
+
+    // RFC 1918 private ranges
+    if (ip.startsWith('10.') || 
+        (ip.startsWith('172.') && parseInt(ip.split('.')[1]) >= 16 && parseInt(ip.split('.')[1]) <= 31) ||
+        ip.startsWith('192.168.')) {
+      return { valid: false, error: 'Private IP ranges not allowed' };
+    }
+  }
+
+  return { valid: true };
+}
+
+function validateHostname(hostname) {
+  if (!hostname || typeof hostname !== 'string') {
+    return { valid: false, error: 'Hostname is required' };
+  }
+
+  // Length validation
+  if (hostname.length < 1 || hostname.length > 253) {
+    return { valid: false, error: 'Hostname must be between 1 and 253 characters' };
+  }
+
+  // Format validation
+  const hostnameRegex = /^[a-zA-Z0-9._-]{1,253}$/;
+  if (!hostnameRegex.test(hostname)) {
+    return { valid: false, error: 'Invalid hostname format' };
+  }
+
+  return { valid: true };
+}
+
+function validateCIDR(cidr) {
+  if (!cidr || typeof cidr !== 'string') {
+    return { valid: false, error: 'CIDR range is required' };
+  }
+
+  // Basic CIDR format validation
+  const cidrRegex = /^([0-9]{1,3}\.){3}[0-9]{1,3}\/([0-9]{1,2})$/;
+  if (!cidrRegex.test(cidr)) {
+    return { valid: false, error: 'Invalid CIDR format' };
+  }
+
+  const [ip, prefix] = cidr.split('/');
+  const prefixLength = parseInt(prefix);
+
+  // Validate IP part
+  const ipValidation = validateIP(ip);
+  if (!ipValidation.valid) {
+    return ipValidation;
+  }
+
+  // Validate prefix length
+  if (prefixLength < 0 || prefixLength > 32) {
+    return { valid: false, error: 'CIDR prefix length must be between 0 and 32' };
+  }
+
+  // Reject prefix lengths shorter than /24 (more than 256 hosts)
+  if (prefixLength < 24) {
+    return { valid: false, error: 'CIDR prefix length must be /24 or shorter (max 256 hosts)' };
+  }
+
+  return { valid: true };
+}
+
+function validatePort(port) {
+  const portNum = parseInt(port);
+  
+  if (isNaN(portNum)) {
+    return { valid: false, error: 'Port must be a number' };
+  }
+
+  if (portNum < 1 || portNum > 65535) {
+    return { valid: false, error: 'Port must be between 1 and 65535' };
+  }
+
+  return { valid: true };
+}
+
+// ─── RATE LIMITERS ───
+const scanLimiter = rateLimit({
+  windowMs: 60_000, // 1 minute
+  max: 10, // 10 requests per window per IP
+  message: { error: 'Too many scan requests' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ─── PING SWEEP ───
-router.post('/ping-sweep', async (req, res) => {
+router.post('/ping-sweep', scanLimiter, async (req, res) => {
   try {
     const { range } = req.body;
     if (!range) return res.status(400).json({ error: 'Range is required (e.g. 192.168.1.1-254)' });
+
+    // Validate CIDR range format
+    const cidrValidation = validateCIDR(range);
+    if (!cidrValidation.valid) {
+      return res.status(400).json({ error: cidrValidation.error });
+    }
 
     const match = range.match(/^(\d+\.\d+\.\d+\.)(\d+)-(\d+)$/);
     if (!match) return res.status(400).json({ error: 'Invalid range format. Use: 192.168.1.1-254' });
@@ -65,15 +184,24 @@ router.post('/ping-sweep', async (req, res) => {
 });
 
 // ─── PORT SCANNER ───
-router.post('/port-scan', async (req, res) => {
+router.post('/port-scan', scanLimiter, async (req, res) => {
   try {
     const { target, ports } = req.body;
     if (!target || !ports) return res.status(400).json({ error: 'Target and ports required' });
 
-    const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
-    const hostnameRegex = /^[a-zA-Z0-9][a-zA-Z0-9.\-]*[a-zA-Z0-9]$/;
-    if (!ipRegex.test(target) && !hostnameRegex.test(target)) {
-      return res.status(400).json({ error: 'Invalid target format' });
+    // Validate target (IP or hostname)
+    const targetValidation = ipRegex({ exact: true }).test(target) ? validateIP(target) : validateHostname(target);
+    if (!targetValidation.valid) {
+      return res.status(400).json({ error: targetValidation.error });
+    }
+
+    // Validate ports
+    const portList = ports.includes('-') ? ports.split('-') : [ports];
+    for (const port of portList) {
+      const portValidation = validatePort(port);
+      if (!portValidation.valid) {
+        return res.status(400).json({ error: portValidation.error });
+      }
     }
 
     const match = ports.match(/^(\d+)-(\d+)$/);
@@ -131,7 +259,7 @@ function getServiceName(port) {
 }
 
 // ─── MAC ADDRESS SCANNER ───
-router.post('/mac-scan', async (req, res) => {
+router.post('/mac-scan', scanLimiter, async (req, res) => {
   try {
     const { subnet } = req.body;
     if (!subnet) return res.status(400).json({ error: 'Subnet required (e.g. 192.168.1.1-254)' });
@@ -199,10 +327,16 @@ function getManufacturer(mac) {
 }
 
 // ─── TRACEROUTE ───
-router.post('/traceroute', async (req, res) => {
+router.post('/traceroute', scanLimiter, async (req, res) => {
   try {
     const { target } = req.body;
     if (!target) return res.status(400).json({ error: 'Target is required' });
+
+    // Validate target (IP or hostname)
+    const targetValidation = ipRegex({ exact: true }).test(target) ? validateIP(target) : validateHostname(target);
+    if (!targetValidation.valid) {
+      return res.status(400).json({ error: targetValidation.error });
+    }
 
     const sanitizedTarget = target.replace(/[^a-zA-Z0-9.\-:]/g, '');
     if (sanitizedTarget !== target) {
@@ -270,6 +404,12 @@ router.post('/whois', async (req, res) => {
     const { query } = req.body;
     if (!query) return res.status(400).json({ error: 'Query is required' });
 
+    // Validate query (IP or hostname)
+    const queryValidation = ipRegex({ exact: true }).test(query) ? validateIP(query) : validateHostname(query);
+    if (!queryValidation.valid) {
+      return res.status(400).json({ error: queryValidation.error });
+    }
+
     const sanitizedQuery = query.replace(/[^a-zA-Z0-9.\-:\/]/g, '');
     if (sanitizedQuery !== query) {
       return res.status(400).json({ error: 'Invalid characters in query' });
@@ -311,6 +451,12 @@ router.post('/snmp/get', async (req, res) => {
     const { ip, oid, community } = req.body;
     if (!ip || !oid) return res.status(400).json({ error: 'IP and OID required' });
 
+    // Validate IP address
+    const ipValidation = validateIP(ip);
+    if (!ipValidation.valid) {
+      return res.status(400).json({ error: ipValidation.error });
+    }
+
     const snmp = require('net-snmp');
     const session = snmp.createSession(ip, community || 'public');
 
@@ -337,6 +483,12 @@ router.post('/snmp/walk', async (req, res) => {
   try {
     const { ip, oid, community } = req.body;
     if (!ip || !oid) return res.status(400).json({ error: 'IP and OID required' });
+
+    // Validate IP address
+    const ipValidation = validateIP(ip);
+    if (!ipValidation.valid) {
+      return res.status(400).json({ error: ipValidation.error });
+    }
 
     const snmp = require('net-snmp');
     const session = snmp.createSession(ip, community || 'public');
@@ -371,6 +523,12 @@ router.post('/subnet-calc', async (req, res) => {
   try {
     const { ip, cidr } = req.body;
     if (!ip || cidr === undefined) return res.status(400).json({ error: 'IP and CIDR required' });
+
+    // Validate IP address
+    const ipValidation = validateIP(ip);
+    if (!ipValidation.valid) {
+      return res.status(400).json({ error: ipValidation.error });
+    }
 
     const cidrNum = parseInt(cidr);
     if (cidrNum < 0 || cidrNum > 32) return res.status(400).json({ error: 'CIDR must be 0-32' });
@@ -434,6 +592,12 @@ router.post('/ping', async (req, res) => {
     const { target, count, size } = req.body;
     if (!target) return res.status(400).json({ error: 'Target required' });
 
+    // Validate target (IP or hostname)
+    const targetValidation = ipRegex({ exact: true }).test(target) ? validateIP(target) : validateHostname(target);
+    if (!targetValidation.valid) {
+      return res.status(400).json({ error: targetValidation.error });
+    }
+
     const pingCount = Math.min(parseInt(count) || 4, 100);
     const packetSize = parseInt(size) || 64;
     const results = [];
@@ -477,8 +641,17 @@ router.post('/tcp-test', async (req, res) => {
     const { target, port, timeout } = req.body;
     if (!target || !port) return res.status(400).json({ error: 'Target and port required' });
 
-    const portNum = parseInt(port);
-    if (portNum < 1 || portNum > 65535) return res.status(400).json({ error: 'Port must be between 1 and 65535' });
+    // Validate target (IP or hostname)
+    const targetValidation = ipRegex({ exact: true }).test(target) ? validateIP(target) : validateHostname(target);
+    if (!targetValidation.valid) {
+      return res.status(400).json({ error: targetValidation.error });
+    }
+
+    // Validate port
+    const portValidation = validatePort(port);
+    if (!portValidation.valid) {
+      return res.status(400).json({ error: portValidation.error });
+    }
 
     const timeoutMs = parseInt(timeout) || 3000;
     const startTime = Date.now();
@@ -594,6 +767,12 @@ router.post('/ip-geolocation', async (req, res) => {
     const { ip } = req.body;
     if (!ip) return res.status(400).json({ error: 'IP address required' });
 
+    // Validate IP address
+    const ipValidation = validateIP(ip);
+    if (!ipValidation.valid) {
+      return res.status(400).json({ error: ipValidation.error });
+    }
+
     const response = await axios.get(`http://ip-api.com/json/${ip}`, { timeout: 5000 });
     
     if (response.data.status === 'fail') {
@@ -636,6 +815,23 @@ router.post('/ssh/save-history', (req, res) => {
   try {
     const { host, port, username } = req.body;
     if (!host || !username) return res.status(400).json({ error: 'Host and username required' });
+
+    // Validate host (IP or hostname)
+    const hostValidation = ipRegex({ exact: true }).test(host) ? validateIP(host) : validateHostname(host);
+    if (!hostValidation.valid) {
+      return res.status(400).json({ error: hostValidation.error });
+    }
+
+    // Validate port
+    const portValidation = validatePort(port || 22);
+    if (!portValidation.valid) {
+      return res.status(400).json({ error: portValidation.error });
+    }
+
+    // Validate username length
+    if (typeof username !== 'string' || username.length > 64) {
+      return res.status(400).json({ error: 'Username must be a string with max 64 characters' });
+    }
 
     // Check if this connection already exists
     const existing = db.prepare('SELECT id FROM ssh_history WHERE host = ? AND port = ? AND username = ?').all(host, port || 22, username);

@@ -25,6 +25,9 @@ interface SSHHistory {
   last_connected: string;
 }
 
+interface SshOutputEvent { sessionId: string; data: string; }
+interface SshStatusEvent { sessionId: string; status: 'connecting' | 'connected' | 'disconnected' | 'error'; message: string; }
+
 const SSHTerminal: React.FC = () => {
   const [sessions, setSessions] = useState<SSHSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -40,7 +43,8 @@ const SSHTerminal: React.FC = () => {
   const [error, setError] = useState('');
 
   const terminalRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const socketRef = useRef<any>(null);
+  const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
+  const sessionsRef = useRef<SSHSession[]>([]);
 
   useEffect(() => {
     // Use shared socket connection
@@ -62,19 +66,23 @@ const SSHTerminal: React.FC = () => {
   useEffect(() => {
     if (!socketRef.current) return;
 
-    socketRef.current.on('ssh:output', ({ sessionId, data }: { sessionId: string; data: string }) => {
-      const session = sessions.find(s => s.id === sessionId);
+    const handleOutput = ({ sessionId, data }: SshOutputEvent) => {
+      const session = sessionsRef.current.find(s => s.id === sessionId);
       if (session && session.terminal) {
         session.terminal.write(data);
       }
-    });
+    };
 
-    socketRef.current.on('ssh:status', ({ sessionId, status, message }: { sessionId: string; status: string; message: string }) => {
-      setSessions(prev => prev.map(s => 
-        s.id === sessionId 
-          ? { ...s, status: status as any }
-          : s
-      ));
+    const handleStatus = ({ sessionId, status, message }: SshStatusEvent) => {
+      setSessions(prev => {
+        const updated = prev.map(s => 
+          s.id === sessionId 
+            ? { ...s, status: status as any }
+            : s
+        );
+        sessionsRef.current = updated;
+        return updated;
+      });
 
       if (status === 'error') {
         setError(message);
@@ -82,13 +90,16 @@ const SSHTerminal: React.FC = () => {
         setError('');
         setShowConnectionForm(false);
       }
-    });
+    };
+
+    socketRef.current.on('ssh:output', handleOutput);
+    socketRef.current.on('ssh:status', handleStatus);
 
     return () => {
-      socketRef.current?.off('ssh:output');
-      socketRef.current?.off('ssh:status');
+      socketRef.current?.off('ssh:output', handleOutput);
+      socketRef.current?.off('ssh:status', handleStatus);
     };
-  }, [sessions]);
+  }, []);
 
   const loadConnectionHistory = async () => {
     try {
@@ -146,7 +157,11 @@ const SSHTerminal: React.FC = () => {
       fitAddon,
     };
 
-    setSessions(prev => [...prev, newSession]);
+    setSessions(prev => {
+      const updated = [...prev, newSession];
+      sessionsRef.current = updated;
+      return updated;
+    });
     setActiveSessionId(sessionId);
 
     // Wait for terminal to be mounted
@@ -211,7 +226,9 @@ const SSHTerminal: React.FC = () => {
       if (session && session.terminal) {
         session.terminal.dispose();
       }
-      return prev.filter(s => s.id !== sessionId);
+      const updated = prev.filter(s => s.id !== sessionId);
+      sessionsRef.current = updated;
+      return updated;
     });
 
     if (activeSessionId === sessionId) {

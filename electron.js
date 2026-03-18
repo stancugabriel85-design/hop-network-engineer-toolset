@@ -175,7 +175,7 @@ function createWindow() {
     for (let i = 0; i < maxRetries; i++) {
       try {
         await new Promise((resolve, reject) => {
-          const req = http.get('http://localhost:3001/api/history', (res) => {
+          const req = http.get('http://localhost:3001/api/health', (res) => {
             resolve(true);
           });
           req.on('error', reject);
@@ -224,20 +224,18 @@ function createWindow() {
 }
 
 function stopBackend() {
-  if (backendProcess) {
-    console.log('Stopping backend server...');
-    backendProcess.kill('SIGTERM');
-    
-    // Force kill after 5 seconds if not stopped
-    setTimeout(() => {
-      if (backendProcess && !backendProcess.killed) {
-        console.log('Force killing backend process...');
-        backendProcess.kill('SIGKILL');
-      }
-    }, 5000);
-    
-    backendProcess = null;
-  }
+  if (!backendProcess) return;
+  const proc = backendProcess;
+  backendProcess = null;
+  console.log('Stopping backend server...');
+  proc.kill('SIGTERM');
+  const forceKill = setTimeout(() => {
+    if (!proc.killed) {
+      console.log('Force killing backend process...');
+      proc.kill('SIGKILL');
+    }
+  }, 5000);
+  proc.on('exit', () => clearTimeout(forceKill));
 }
 
 // App lifecycle events

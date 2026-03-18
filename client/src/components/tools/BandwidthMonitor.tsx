@@ -5,6 +5,8 @@ import { BarChart3, Play, Square } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import toast from 'react-hot-toast';
 
+interface BandwidthUpdateEvent { ifIndex: number; inMbps: number; outMbps: number; timestamp: number; }
+
 const BandwidthMonitor: React.FC = () => {
   const [ip, setIp] = useState('');
   const [community, setCommunity] = useState('public');
@@ -24,17 +26,17 @@ const BandwidthMonitor: React.FC = () => {
 
   const handleStop = useCallback(() => {
     const socket = getSocket();
-    socket.emit('monitor:unsubscribe');
+    socket.emit('bandwidth:unsubscribe');
     setMonitoring(false);
   }, []);
 
   useEffect(() => {
     const socket = getSocket();
-    const handleUpdate = (data: any) => addBandwidthUpdate(data);
+    const handleUpdate = (data: BandwidthUpdateEvent) => addBandwidthUpdate(data);
     socket.on('bandwidth:update', handleUpdate);
     return () => {
       socket.off('bandwidth:update', handleUpdate);
-      if (monitoring) socket.emit('monitor:unsubscribe');
+      if (monitoring) socket.emit('bandwidth:unsubscribe');
     };
   }, [addBandwidthUpdate, monitoring]);
 

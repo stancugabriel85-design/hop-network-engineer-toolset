@@ -8,7 +8,21 @@ function setupSocket(io) {
     let snmpIntervals = [];
     let bandwidthIntervals = [];
 
+    // Event throttling
+    let eventCount = 0;
+    const eventWindow = setInterval(() => { eventCount = 0; }, 1000);
+
+    const checkEventLimit = () => {
+      eventCount++;
+      if (eventCount > 50) {
+        socket.emit('error', { message: 'Too many events' });
+        return true; // Block the event
+      }
+      return false; // Allow the event
+    };
+
     socket.on('monitor:subscribe', ({ hosts, interval }) => {
+      if (checkEventLimit()) return;
       // Clear existing intervals
       monitorIntervals.forEach(clearInterval);
       monitorIntervals = [];
@@ -54,11 +68,13 @@ function setupSocket(io) {
     });
 
     socket.on('monitor:unsubscribe', () => {
+      if (checkEventLimit()) return;
       monitorIntervals.forEach(clearInterval);
       monitorIntervals = [];
     });
 
     socket.on('snmp:subscribe', ({ ip, oid, community, interval }) => {
+      if (checkEventLimit()) return;
       snmpIntervals.forEach(clearInterval);
       snmpIntervals = [];
 
@@ -68,21 +84,26 @@ function setupSocket(io) {
 
         const iv = setInterval(() => {
           const session = snmp.createSession(ip, community || 'public');
-          session.get([oid], (err, varbinds) => {
+          try {
+            session.get([oid], (err, varbinds) => {
+              session.close();
+              if (err) {
+                socket.emit('snmp:update', { oid, value: null, error: err.message, timestamp: Date.now() });
+                return;
+              }
+              for (const vb of varbinds) {
+                socket.emit('snmp:update', {
+                  oid: vb.oid,
+                  type: snmp.ObjectType[vb.type] || vb.type,
+                  value: vb.value ? parseFloat(vb.value.toString()) || vb.value.toString() : '',
+                  timestamp: Date.now()
+                });
+              }
+            });
+          } catch (err) {
             session.close();
-            if (err) {
-              socket.emit('snmp:update', { oid, value: null, error: err.message, timestamp: Date.now() });
-              return;
-            }
-            for (const vb of varbinds) {
-              socket.emit('snmp:update', {
-                oid: vb.oid,
-                type: snmp.ObjectType[vb.type] || vb.type,
-                value: vb.value ? parseFloat(vb.value.toString()) || vb.value.toString() : '',
-                timestamp: Date.now()
-              });
-            }
-          });
+            socket.emit('snmp:update', { error: err.message, timestamp: Date.now() });
+          }
         }, pollInterval);
         snmpIntervals.push(iv);
       } catch (err) {
@@ -91,11 +112,13 @@ function setupSocket(io) {
     });
 
     socket.on('snmp:unsubscribe', () => {
+      if (checkEventLimit()) return;
       snmpIntervals.forEach(clearInterval);
       snmpIntervals = [];
     });
 
     socket.on('bandwidth:subscribe', ({ ip, community, ifIndex, interval }) => {
+      if (checkEventLimit()) return;
       try {
         const snmp = require('net-snmp');
         const pollInterval = interval || 5000;
@@ -108,31 +131,36 @@ function setupSocket(io) {
 
         const iv = setInterval(() => {
           const session = snmp.createSession(ip, community || 'public');
-          session.get([inOid, outOid], (err, varbinds) => {
+          try {
+            session.get([inOid, outOid], (err, varbinds) => {
+              session.close();
+              if (err) return;
+
+              const now = Date.now();
+              const inOctets = parseInt(varbinds[0]?.value?.toString()) || 0;
+              const outOctets = parseInt(varbinds[1]?.value?.toString()) || 0;
+
+              if (prevIn !== null && prevTime !== null) {
+                const timeDiff = (now - prevTime) / 1000;
+                const inMbps = ((inOctets - prevIn) * 8 / timeDiff / 1000000).toFixed(3);
+                const outMbps = ((outOctets - prevOut) * 8 / timeDiff / 1000000).toFixed(3);
+
+                socket.emit('bandwidth:update', {
+                  ifIndex: ifIndex || 1,
+                  inMbps: parseFloat(inMbps),
+                  outMbps: parseFloat(outMbps),
+                  timestamp: now
+                });
+              }
+
+              prevIn = inOctets;
+              prevOut = outOctets;
+              prevTime = now;
+            });
+          } catch (err) {
             session.close();
-            if (err) return;
-
-            const now = Date.now();
-            const inOctets = parseInt(varbinds[0]?.value?.toString()) || 0;
-            const outOctets = parseInt(varbinds[1]?.value?.toString()) || 0;
-
-            if (prevIn !== null && prevTime !== null) {
-              const timeDiff = (now - prevTime) / 1000;
-              const inMbps = ((inOctets - prevIn) * 8 / timeDiff / 1000000).toFixed(3);
-              const outMbps = ((outOctets - prevOut) * 8 / timeDiff / 1000000).toFixed(3);
-
-              socket.emit('bandwidth:update', {
-                ifIndex: ifIndex || 1,
-                inMbps: parseFloat(inMbps),
-                outMbps: parseFloat(outMbps),
-                timestamp: now
-              });
-            }
-
-            prevIn = inOctets;
-            prevOut = outOctets;
-            prevTime = now;
-          });
+            socket.emit('bandwidth:update', { error: err.message, timestamp: Date.now() });
+          }
         }, pollInterval);
         bandwidthIntervals.push(iv);
       } catch (err) {
@@ -141,6 +169,7 @@ function setupSocket(io) {
     });
 
     socket.on('bandwidth:unsubscribe', () => {
+      if (checkEventLimit()) return;
       bandwidthIntervals.forEach(clearInterval);
       bandwidthIntervals = [];
     });
@@ -149,7 +178,30 @@ function setupSocket(io) {
     const sshSessions = new Map();
 
     socket.on('ssh:connect', ({ sessionId, host, port, username, password }) => {
+      if (checkEventLimit()) return;
       try {
+        // Input validation
+        if (!host || typeof host !== 'string' || !/^[a-zA-Z0-9._-]{1,253}$/.test(host)) {
+          socket.emit('ssh:status', { sessionId, status: 'error', message: 'Invalid connection parameters' });
+          return;
+        }
+
+        const portNum = parseInt(port) || 22;
+        if (portNum < 1 || portNum > 65535) {
+          socket.emit('ssh:status', { sessionId, status: 'error', message: 'Invalid connection parameters' });
+          return;
+        }
+
+        if (!username || typeof username !== 'string' || !/^[a-zA-Z0-9._@-]{1,64}$/.test(username)) {
+          socket.emit('ssh:status', { sessionId, status: 'error', message: 'Invalid connection parameters' });
+          return;
+        }
+
+        if (!password || typeof password !== 'string' || password.length > 256) {
+          socket.emit('ssh:status', { sessionId, status: 'error', message: 'Invalid connection parameters' });
+          return;
+        }
+
         const { Client } = require('ssh2');
         const conn = new Client();
 
@@ -194,7 +246,7 @@ function setupSocket(io) {
 
         conn.connect({
           host,
-          port: port || 22,
+          port: portNum,
           username,
           password,
           readyTimeout: 10000,
@@ -206,6 +258,7 @@ function setupSocket(io) {
     });
 
     socket.on('ssh:input', ({ sessionId, data }) => {
+      if (checkEventLimit()) return;
       const session = sshSessions.get(sessionId);
       if (session && session.stream) {
         session.stream.write(data);
@@ -213,6 +266,7 @@ function setupSocket(io) {
     });
 
     socket.on('ssh:resize', ({ sessionId, rows, cols }) => {
+      if (checkEventLimit()) return;
       const session = sshSessions.get(sessionId);
       if (session && session.stream) {
         session.stream.setWindow(rows, cols);
@@ -220,6 +274,7 @@ function setupSocket(io) {
     });
 
     socket.on('ssh:disconnect', ({ sessionId }) => {
+      if (checkEventLimit()) return;
       const session = sshSessions.get(sessionId);
       if (session) {
         if (session.stream) session.stream.end();
@@ -237,6 +292,9 @@ function setupSocket(io) {
       monitorIntervals = [];
       snmpIntervals = [];
       bandwidthIntervals = [];
+
+      // Clean up event throttling
+      clearInterval(eventWindow);
 
       // Clean up SSH sessions
       sshSessions.forEach((session, sessionId) => {

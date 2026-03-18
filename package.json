@@ -1,7 +1,7 @@
 {
   "name": "hop-network-engineer-toolset",
   "productName": "Hop! - Network Engineer Toolset",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Hop! - Professional network diagnostics and monitoring dashboard",
   "main": "electron.js",
   "author": "Gabriel Stancu",
@@ -28,6 +28,8 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "express-rate-limit": "^8.3.1",
+    "ip-regex": "^5.0.0",
     "net-snmp": "^3.11.2",
     "node-arp": "^1.0.6",
     "ping": "^0.4.4",

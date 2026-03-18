@@ -3,6 +3,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 const db = require('./db');
 const routes = require('./routes');
 const setupSocket = require('./socket');
@@ -15,7 +16,19 @@ const io = new Server(server, {
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
-app.use('/api', routes);
+
+// General rate limiter for all API routes
+const generalLimiter = rateLimit({
+  windowMs: 60_000, // 1 minute
+  max: 120, // 120 requests per window per IP
+  message: { error: 'Too many requests' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api', generalLimiter, routes);
+
+app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 app.get('/api/history', (req, res) => {
   try {
