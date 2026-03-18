@@ -2,7 +2,20 @@
 
 A professional dark-themed dashboard for network diagnostics and monitoring, built with React, Node.js, and Socket.IO.
 
-![Hop!](https://img.shields.io/badge/version-1.0.0-cyan) ![License](https://img.shields.io/badge/license-MIT-green)
+![Hop!](https://img.shields.io/badge/version-1.1.0-cyan) ![License](https://img.shields.io/badge/license-MIT-green)
+
+## What's New in v1.1.0
+
+- **Security:** Added input validation and SSRF protection on all network scan endpoints
+- **Security:** SSH connection parameters are now validated server-side before connecting
+- **Security:** Added rate limiting to all REST API endpoints and Socket.IO events
+- **Fixed:** Bandwidth Monitor was sending the wrong unsubscribe event, causing server-side polling to never stop
+- **Fixed:** SNMP session objects were leaking when callbacks threw errors — wrapped in try/finally
+- **Fixed:** SSH terminal socket listeners were stacking up on every session change, causing memory leaks and stale output routing
+- **Fixed:** Electron health check was loading the full scan history on every startup retry — now uses a dedicated /api/health endpoint
+- **Fixed:** stopBackend() could double-kill the backend process on app quit
+- **Added:** SSH connection history is now saved and retrievable via API
+- **Improved:** Replaced all `any` TypeScript types in socket event handlers with proper typed interfaces
 
 ## 🚀 Features
 
